@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[cfg(target_os = "macos")]
-use crate::{general_settings::GeneralSettingsStore, windows::CapWindowId};
+use crate::general_settings::GeneralSettingsStore;
 #[cfg(target_os = "macos")]
 use cidre::av;
 #[cfg(target_os = "macos")]
@@ -9,7 +9,6 @@ use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
 #[cfg(target_os = "macos")]
 use std::{
     future::Future,
-    str::FromStr,
     sync::atomic::{AtomicU32, AtomicU64, Ordering},
     time::Duration,
 };
@@ -182,13 +181,7 @@ pub(crate) fn sync_macos_dock_visibility(app: &tauri::AppHandle) {
         .flatten()
         .is_some_and(|settings| settings.hide_dock_icon);
 
-    let has_visible_dock_window = app.webview_windows().iter().any(|(label, window)| {
-        CapWindowId::from_str(label)
-            .map(|window_id| window_id.activates_dock() && window.is_visible().unwrap_or(false))
-            .unwrap_or(false)
-    });
-
-    let should_show_dock = !should_hide_dock || has_visible_dock_window;
+    let should_show_dock = !should_hide_dock;
 
     macos_sync_activation_policy(app, should_show_dock);
 
