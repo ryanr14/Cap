@@ -6,7 +6,12 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager, Url};
 use tracing::trace;
 
-use crate::{App, ArcLock, recording::StartRecordingInputs, windows::ShowCapWindow};
+use crate::{
+    App, ArcLock,
+    desktop_cleanup::{self, DesktopIconAction},
+    recording::StartRecordingInputs,
+    windows::ShowCapWindow,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -31,6 +36,9 @@ pub enum DeepLinkAction {
     },
     OpenSettings {
         page: Option<String>,
+    },
+    DesktopIcons {
+        action: DesktopIconAction,
     },
 }
 
@@ -70,6 +78,7 @@ pub fn handle(app_handle: &AppHandle, urls: Vec<Url>) {
     });
 }
 
+#[derive(Debug)]
 pub enum ActionParseFromUrlError {
     ParseFailed(String),
     Invalid,
@@ -88,9 +97,21 @@ impl TryFrom<&Url> for DeepLinkAction {
                 .map_err(|_| ActionParseFromUrlError::Invalid);
         }
 
+        if url.domain() == Some("desktop-icons") {
+            let action = match url.path().trim_matches('/') {
+                "hide" => DesktopIconAction::Hide,
+                "show" => DesktopIconAction::Show,
+                "toggle" => DesktopIconAction::Toggle,
+                _ => return Err(ActionParseFromUrlError::Invalid),
+            };
+
+            return Ok(Self::DesktopIcons { action });
+        }
+
         match url.domain() {
-            Some(v) if v != "action" => Err(ActionParseFromUrlError::NotAction),
-            _ => Err(ActionParseFromUrlError::Invalid),
+            Some("action") => Ok(()),
+            Some(_) => Err(ActionParseFromUrlError::NotAction),
+            None => Err(ActionParseFromUrlError::Invalid),
         }?;
 
         let params = url
@@ -153,6 +174,50 @@ impl DeepLinkAction {
             DeepLinkAction::OpenSettings { page } => {
                 crate::show_window(app.clone(), ShowCapWindow::Settings { page }).await
             }
+            DeepLinkAction::DesktopIcons { action } => {
+                let update = desktop_cleanup::apply_desktop_icon_action(action)?;
+                tracing::info!(
+                    ?action,
+                    visible = update.visible,
+                    changed = update.changed,
+                    "Applied desktop icon visibility action"
+                );
+                Ok(())
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DeepLinkAction, DesktopIconAction};
+    use tauri::Url;
+
+    #[test]
+    fn parses_desktop_icons_path_deeplink() {
+        let url = Url::parse("cap-desktop://desktop-icons/hide").unwrap();
+
+        match DeepLinkAction::try_from(&url) {
+            Ok(DeepLinkAction::DesktopIcons { action }) => {
+                assert_eq!(action, DesktopIconAction::Hide);
+            }
+            _ => panic!("expected desktop icon hide action"),
+        }
+    }
+
+    #[test]
+    fn parses_desktop_icons_json_action() {
+        let url = Url::parse(
+            "cap-desktop://action/?value=%7B%22desktop_icons%22%3A%7B%22action%22%3A%22toggle%22%7D%7D",
+        )
+        .unwrap();
+
+        let parsed = DeepLinkAction::try_from(&url);
+        match parsed {
+            Ok(DeepLinkAction::DesktopIcons { action }) => {
+                assert_eq!(action, DesktopIconAction::Toggle);
+            }
+            _ => panic!("expected desktop icon toggle action, got {parsed:?}"),
         }
     }
 }

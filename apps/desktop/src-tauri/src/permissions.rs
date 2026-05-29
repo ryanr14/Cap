@@ -159,6 +159,11 @@ fn macos_sync_activation_policy(app: &tauri::AppHandle, should_show_dock: bool) 
 }
 
 #[cfg(target_os = "macos")]
+fn macos_should_show_dock(should_hide_dock: bool, has_visible_settings_window: bool) -> bool {
+    !should_hide_dock || has_visible_settings_window
+}
+
+#[cfg(target_os = "macos")]
 pub(crate) fn prepare_macos_panel_window(
     app: &tauri::AppHandle,
 ) -> MacosPanelWindowActivationGuard {
@@ -194,13 +199,15 @@ pub(crate) fn sync_macos_dock_visibility(app: &tauri::AppHandle) {
         .flatten()
         .is_some_and(|settings| settings.hide_dock_icon);
 
-    let has_visible_dock_window = app.webview_windows().iter().any(|(label, window)| {
+    let has_visible_settings_window = app.webview_windows().iter().any(|(label, window)| {
         CapWindowId::from_str(label)
-            .map(|window_id| window_id.activates_dock() && window.is_visible().unwrap_or(false))
+            .map(|window_id| {
+                matches!(window_id, CapWindowId::Settings) && window.is_visible().unwrap_or(false)
+            })
             .unwrap_or(false)
     });
 
-    let should_show_dock = !should_hide_dock || has_visible_dock_window;
+    let should_show_dock = macos_should_show_dock(should_hide_dock, has_visible_settings_window);
 
     macos_sync_activation_policy(app, should_show_dock);
 
@@ -546,5 +553,14 @@ mod tests {
         assert!(!macos_permission_needs_settings_fallback(
             &OSPermission::Microphone
         ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn dock_visibility_follows_cleanshot_style_settings_exception() {
+        assert!(macos_should_show_dock(false, false));
+        assert!(macos_should_show_dock(false, true));
+        assert!(!macos_should_show_dock(true, false));
+        assert!(macos_should_show_dock(true, true));
     }
 }

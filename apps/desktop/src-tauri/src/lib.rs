@@ -8,6 +8,7 @@ mod camera;
 mod camera_legacy;
 mod captions;
 mod deeplink_actions;
+mod desktop_cleanup;
 mod editor_window;
 mod exit_shutdown;
 mod export;

@@ -430,7 +430,7 @@ function Inner(props: { initialStore: GeneralSettingsStore | null }) {
 						<SectionRows>
 							<ToggleSettingItem
 								label="Always show dock icon"
-								description="Keep Cap in the dock even when no windows are open."
+								description="When off, Cap only appears in the Dock while Settings is open."
 								value={!settings.hideDockIcon}
 								onChange={(v) => handleChange("hideDockIcon", !v)}
 							/>
