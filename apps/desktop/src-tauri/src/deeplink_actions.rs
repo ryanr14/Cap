@@ -32,6 +32,7 @@ pub enum DeepLinkAction {
     OpenSettings {
         page: Option<String>,
     },
+    OcrAreaToClipboard {},
 }
 
 pub fn handle(app_handle: &AppHandle, urls: Vec<Url>) {
@@ -152,6 +153,9 @@ impl DeepLinkAction {
             }
             DeepLinkAction::OpenSettings { page } => {
                 crate::show_window(app.clone(), ShowCapWindow::Settings { page }).await
+            }
+            DeepLinkAction::OcrAreaToClipboard {} => {
+                crate::ocr_capture::open_ocr_capture_to_clipboard(app.clone(), app.state()).await
             }
         }
     }

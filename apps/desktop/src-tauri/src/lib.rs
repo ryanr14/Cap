@@ -20,6 +20,7 @@ mod http_client;
 mod import;
 mod logging;
 mod notifications;
+mod ocr_capture;
 mod panel_manager;
 mod permissions;
 mod platform;
@@ -4037,6 +4038,8 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
             get_devices_snapshot,
             upload_exported_video,
             upload_screenshot,
+            ocr_capture::open_ocr_capture_to_clipboard,
+            ocr_capture::capture_screenshot_text_to_clipboard,
             create_screenshot_editor_instance,
             update_screenshot_config,
             recognize_screenshot_text,

@@ -13,7 +13,7 @@ use crate::{
     App, ArcLock, general_settings,
     recording_settings::RecordingTargetMode,
     window_exclusion::WindowExclusion,
-    windows::{CapWindowId, ShowCapWindow, hide_overlay, show_overlay},
+    windows::{CapWindowId, ShowCapWindow, TargetSelectAction, hide_overlay, show_overlay},
 };
 use scap_targets::{
     Display, DisplayId, Window, WindowId,
@@ -58,6 +58,25 @@ pub async fn open_target_select_overlays(
     focused_target: Option<ScreenCaptureTarget>,
     specific_display_id: Option<String>,
     target_mode: Option<RecordingTargetMode>,
+) -> Result<(), String> {
+    open_target_select_overlays_with_action(
+        app,
+        state,
+        focused_target,
+        specific_display_id,
+        target_mode,
+        None,
+    )
+    .await
+}
+
+pub async fn open_target_select_overlays_with_action(
+    app: AppHandle,
+    state: tauri::State<'_, WindowFocusManager>,
+    focused_target: Option<ScreenCaptureTarget>,
+    specific_display_id: Option<String>,
+    target_mode: Option<RecordingTargetMode>,
+    target_action: Option<TargetSelectAction>,
 ) -> Result<(), String> {
     let start = Instant::now();
 
@@ -123,6 +142,7 @@ pub async fn open_target_select_overlays(
             if let Ok(window) = (ShowCapWindow::TargetSelectOverlay {
                 display_id: display_id.clone(),
                 target_mode,
+                target_action,
             })
             .show(&app)
             .await
@@ -136,6 +156,7 @@ pub async fn open_target_select_overlays(
                 if let Ok(window) = (ShowCapWindow::TargetSelectOverlay {
                     display_id: display_id_clone,
                     target_mode,
+                    target_action,
                 })
                 .show(&app_clone)
                 .await

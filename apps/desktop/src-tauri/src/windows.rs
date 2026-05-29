@@ -4,7 +4,7 @@
 use anyhow::anyhow;
 use futures::pin_mut;
 use scap_targets::{Display, DisplayId};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::{
     ops::Deref,
@@ -902,6 +902,12 @@ impl CapWindowId {
     }
 }
 
+#[derive(Debug, Clone, Copy, Type, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TargetSelectAction {
+    OcrToClipboard,
+}
+
 #[derive(Debug, Clone, Type, Deserialize)]
 pub enum ShowCapWindow {
     Main {
@@ -920,6 +926,8 @@ pub enum ShowCapWindow {
     TargetSelectOverlay {
         display_id: DisplayId,
         target_mode: Option<RecordingTargetMode>,
+        #[serde(default)]
+        target_action: Option<TargetSelectAction>,
     },
     CaptureArea {
         screen_id: DisplayId,
@@ -1500,6 +1508,7 @@ impl ShowCapWindow {
             Self::TargetSelectOverlay {
                 display_id,
                 target_mode,
+                target_action,
             } => {
                 let Some(display) = scap_targets::Display::from_id(display_id) else {
                     return Err(tauri::Error::WindowNotFound);
@@ -1521,6 +1530,10 @@ impl ShowCapWindow {
                     Some(RecordingTargetMode::Camera) => "&targetMode=camera",
                     None => "",
                 };
+                let target_action_param = match target_action {
+                    Some(TargetSelectAction::OcrToClipboard) => "&targetAction=ocrToClipboard",
+                    None => "",
+                };
 
                 let camera_ws_port = {
                     let Some(state) = app.try_state::<ArcLock<App>>() else {
@@ -1537,7 +1550,7 @@ impl ShowCapWindow {
                 let mut window_builder = self
                     .window_builder(
                         app,
-                        format!("/target-select-overlay?displayId={display_id}&isHoveredDisplay={is_hovered_display}{target_mode_param}"),
+                        format!("/target-select-overlay?displayId={display_id}&isHoveredDisplay={is_hovered_display}{target_mode_param}{target_action_param}"),
                     )
                     .maximized(false)
                     .resizable(false)

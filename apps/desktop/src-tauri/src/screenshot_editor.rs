@@ -751,13 +751,23 @@ pub async fn recognize_screenshot_text(
     instance: WindowScreenshotEditorInstance,
     region: ScreenshotOcrRegion,
 ) -> Result<ScreenshotOcrResult, String> {
-    let region = clamp_screenshot_ocr_region(region, instance.image_width, instance.image_height)?;
-    let image = create_screenshot_ocr_image(
+    recognize_screenshot_text_from_rgba(
         instance.source_rgba.as_ref(),
         instance.image_width,
         instance.image_height,
         region,
-    )?;
+    )
+    .await
+}
+
+pub async fn recognize_screenshot_text_from_rgba(
+    source_rgba: &[u8],
+    image_width: u32,
+    image_height: u32,
+    region: ScreenshotOcrRegion,
+) -> Result<ScreenshotOcrResult, String> {
+    let region = clamp_screenshot_ocr_region(region, image_width, image_height)?;
+    let image = create_screenshot_ocr_image(source_rgba, image_width, image_height, region)?;
     let mut result = recognize_screenshot_ocr_image(image).await?;
 
     for line in &mut result.lines {

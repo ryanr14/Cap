@@ -97,6 +97,72 @@ const findCamera = (cameras: CameraInfo[], id?: DeviceOrModelID | null) => {
 	);
 };
 
+type TargetSelectAction = "ocrToClipboard";
+
+type OcrCaptureClipboardResult = {
+	text: string;
+	engine: string;
+	lineCount: number;
+};
+
+const normalizeTargetAction = (
+	action: string | undefined,
+): TargetSelectAction | null =>
+	action === "ocrToClipboard" ? "ocrToClipboard" : null;
+
+const getErrorMessage = (error: unknown) =>
+	error instanceof Error ? error.message : String(error);
+
+async function prepareTargetCaptureWindows() {
+	const allWindows = await WebviewWindow.getAll();
+	for (const win of allWindows) {
+		if (win.label.startsWith("target-select-overlay-")) {
+			await win.setIgnoreCursorEvents(true);
+			await win.hide();
+		}
+	}
+	await new Promise((resolve) => setTimeout(resolve, 50));
+}
+
+async function takeScreenshotToEditor(target: ScreenCaptureTarget) {
+	try {
+		await prepareTargetCaptureWindows();
+		const path = await invoke<string>("take_screenshot", { target });
+		await commands.showWindow({ ScreenshotEditor: { path } });
+		await commands.closeTargetSelectOverlays();
+	} catch (error) {
+		const message = getErrorMessage(error);
+		toast.error(`Failed to take screenshot: ${message}`);
+		console.error("Failed to take screenshot", error);
+	}
+}
+
+async function captureTextToClipboard(target: ScreenCaptureTarget) {
+	try {
+		await prepareTargetCaptureWindows();
+		const result = await invoke<OcrCaptureClipboardResult>(
+			"capture_screenshot_text_to_clipboard",
+			{ target },
+		);
+		const lineLabel = result.lineCount === 1 ? "line" : "lines";
+		toast.success(`Copied ${result.lineCount} OCR ${lineLabel}`);
+		await commands.closeTargetSelectOverlays();
+	} catch (error) {
+		const message = getErrorMessage(error);
+		await commands
+			.closeTargetSelectOverlays()
+			.catch((closeError) =>
+				console.error("Failed to close target select overlays", closeError),
+			);
+		const dialogShown = await commands
+			.globalMessageDialog(`Failed to copy text: ${message}`)
+			.then(() => true)
+			.catch(() => false);
+		if (!dialogShown) toast.error(`Failed to copy text: ${message}`);
+		console.error("Failed to copy OCR text", error);
+	}
+}
+
 async function repositionCameraForWindow(
 	windowBounds: { x: number; y: number; width: number; height: number },
 	displayId: DisplayId,
@@ -170,8 +236,12 @@ function Inner() {
 		displayId: DisplayId;
 		isHoveredDisplay: string;
 		targetMode: "display" | "window" | "area" | "camera";
+		targetAction: TargetSelectAction;
 	}>();
 	const [options, setOptions] = useOptions();
+	const targetAction = createMemo(() =>
+		normalizeTargetAction(params.targetAction),
+	);
 
 	onMount(() => {
 		if (params.targetMode) {
@@ -732,7 +802,9 @@ function Inner() {
 					});
 
 					const minSize = () =>
-						options.mode === "screenshot" ? MIN_SCREENSHOT_SIZE : MIN_SIZE;
+						targetAction() === "ocrToClipboard" || options.mode === "screenshot"
+							? MIN_SCREENSHOT_SIZE
+							: MIN_SIZE;
 
 					const isValid = createMemo(() => {
 						const b = crop();
@@ -1026,7 +1098,11 @@ function Inner() {
 						setWasInteracting(interacting);
 
 						if (was && !interacting) {
-							if (options.mode === "screenshot" && isValid()) {
+							if (
+								(targetAction() === "ocrToClipboard" ||
+									options.mode === "screenshot") &&
+								isValid()
+							) {
 								const cropBounds = crop();
 								const displayInfo = areaDisplayInfo.data;
 								console.log("[Screenshot Debug] crop bounds:", cropBounds);
@@ -1057,26 +1133,9 @@ function Inner() {
 									JSON.stringify(target, null, 2),
 								);
 
-								try {
-									const allWindows = await WebviewWindow.getAll();
-									for (const win of allWindows) {
-										if (win.label.startsWith("target-select-overlay-")) {
-											await win.setIgnoreCursorEvents(true);
-											await win.hide();
-										}
-									}
-									await new Promise((resolve) => setTimeout(resolve, 50));
-
-									const path = await invoke<string>("take_screenshot", {
-										target,
-									});
-									await commands.showWindow({ ScreenshotEditor: { path } });
-									await commands.closeTargetSelectOverlays();
-								} catch (e) {
-									const message = e instanceof Error ? e.message : String(e);
-									toast.error(`Failed to take screenshot: ${message}`);
-									console.error("Failed to take screenshot", e);
-								}
+								if (targetAction() === "ocrToClipboard")
+									await captureTextToClipboard(target);
+								else await takeScreenshotToEditor(target);
 							}
 						}
 					});
@@ -1110,6 +1169,7 @@ function Inner() {
 													},
 												},
 											}}
+											targetAction={targetAction()}
 											disabled={!isValid()}
 											showBackground={controllerInside()}
 											onRecordingStart={() => setOriginalCameraBounds(null)}
@@ -1623,6 +1683,7 @@ function CameraPreviewInline() {
 
 function RecordingControls(props: {
 	target: ScreenCaptureTarget;
+	targetAction?: TargetSelectAction | null;
 	setToggleModeSelect?: (value: boolean) => void;
 	showBackground?: boolean;
 	disabled?: boolean;
@@ -1685,6 +1746,7 @@ function RecordingControls(props: {
 		if (!rawOptions.micName) return null;
 		return mics().find((name) => name === rawOptions.micName) ?? null;
 	});
+	const isOcrToClipboard = () => props.targetAction === "ocrToClipboard";
 
 	const menuModes = async () =>
 		await Menu.new({
@@ -1780,11 +1842,19 @@ function RecordingControls(props: {
 							<IconCapX class="invert will-change-transform size-3 dark:invert-0" />
 						</div>
 						<div
-							data-inactive={rawOptions.mode === "instant" && !auth.data}
+							data-inactive={
+								!isOcrToClipboard() &&
+								rawOptions.mode === "instant" &&
+								!auth.data
+							}
 							data-disabled={startDisabled()}
 							class="flex flex-1 min-w-0 max-w-[18rem] overflow-hidden flex-row h-11 rounded-full text-white bg-linear-to-r from-blue-10 via-blue-10 to-blue-11 dark:from-blue-9 dark:via-blue-9 dark:to-blue-10 group"
 							onClick={async () => {
-								if (rawOptions.mode === "instant" && !auth.data) {
+								if (
+									!isOcrToClipboard() &&
+									rawOptions.mode === "instant" &&
+									!auth.data
+								) {
 									emit("start-sign-in");
 									return;
 								}
@@ -1812,26 +1882,13 @@ function RecordingControls(props: {
 
 								props.onRecordingStart?.();
 
-								if (rawOptions.mode === "screenshot") {
-									try {
-										const allWindows = await WebviewWindow.getAll();
-										for (const win of allWindows) {
-											if (win.label.startsWith("target-select-overlay-")) {
-												await win.setIgnoreCursorEvents(true);
-												await win.hide();
-											}
-										}
+								if (isOcrToClipboard()) {
+									await captureTextToClipboard(props.target);
+									return;
+								}
 
-										const path = await invoke<string>("take_screenshot", {
-											target: props.target,
-										});
-										await commands.showWindow({ ScreenshotEditor: { path } });
-										await commands.closeTargetSelectOverlays();
-									} catch (e) {
-										const message = e instanceof Error ? e.message : String(e);
-										toast.error(`Failed to take screenshot: ${message}`);
-										console.error("Failed to take screenshot", e);
-									}
+								if (rawOptions.mode === "screenshot") {
+									await takeScreenshotToEditor(props.target);
 									return;
 								}
 
@@ -1863,6 +1920,7 @@ function RecordingControls(props: {
 								<div class="flex flex-col mr-2 ml-3 min-w-0">
 									<span class="text-[0.95rem] font-medium text-white text-nowrap">
 										{(() => {
+											if (isOcrToClipboard()) return "Copy Text";
 											if (rawOptions.mode === "instant" && !auth.data)
 												return "Sign In To Use";
 											if (rawOptions.mode === "screenshot")
@@ -1871,7 +1929,9 @@ function RecordingControls(props: {
 										})()}
 									</span>
 									<span class="text-[11px] flex items-center text-nowrap gap-1 transition-opacity duration-200 text-white/90 font-light -mt-0.5">
-										{`${capitalize(rawOptions.mode)} Mode`}
+										{isOcrToClipboard()
+											? "OCR Capture"
+											: `${capitalize(rawOptions.mode)} Mode`}
 									</span>
 								</div>
 							</div>
