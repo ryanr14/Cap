@@ -83,10 +83,44 @@ import {
 
 const MIN_SIZE = { width: 150, height: 150 };
 const MIN_SCREENSHOT_SIZE = { width: 1, height: 1 };
+type AreaTarget = Extract<ScreenCaptureTarget, { variant: "area" }>;
 
 const capitalize = (str: string) => {
 	return str.charAt(0).toUpperCase() + str.slice(1);
 };
+
+const areaTargetFromCropBounds = (
+	screen: DisplayId,
+	bounds: CropBounds,
+): AreaTarget => ({
+	variant: "area",
+	screen,
+	bounds: {
+		position: {
+			x: bounds.x,
+			y: bounds.y,
+		},
+		size: {
+			width: bounds.width,
+			height: bounds.height,
+		},
+	},
+});
+
+const cropBoundsFromAreaTarget = (target: AreaTarget): CropBounds => ({
+	x: target.bounds.position.x,
+	y: target.bounds.position.y,
+	width: target.bounds.size.width,
+	height: target.bounds.size.height,
+});
+
+const cloneAreaTarget = (target: AreaTarget): AreaTarget =>
+	areaTargetFromCropBounds(target.screen, cropBoundsFromAreaTarget(target));
+
+const hasSelectableArea = (bounds: CropBounds | undefined) =>
+	!!bounds &&
+	bounds.width >= MIN_SCREENSHOT_SIZE.width &&
+	bounds.height >= MIN_SCREENSHOT_SIZE.height;
 
 const findCamera = (cameras: CameraInfo[], id?: DeviceOrModelID | null) => {
 	if (!id) return undefined;
@@ -227,7 +261,6 @@ function Inner() {
 	}));
 
 	const [crop, setCrop] = createSignal<CropBounds>(CROP_ZERO);
-	type AreaTarget = Extract<ScreenCaptureTarget, { variant: "area" }>;
 	const [pendingAreaTarget, setPendingAreaTarget] =
 		createSignal<AreaTarget | null>(null);
 	const [initialAreaBounds, setInitialAreaBounds] = createSignal<
@@ -241,20 +274,7 @@ function Inner() {
 			params.displayId &&
 			target.screen === params.displayId
 		) {
-			setPendingAreaTarget({
-				variant: "area",
-				screen: target.screen,
-				bounds: {
-					position: {
-						x: target.bounds.position.x,
-						y: target.bounds.position.y,
-					},
-					size: {
-						width: target.bounds.size.width,
-						height: target.bounds.size.height,
-					},
-				},
-			});
+			setPendingAreaTarget(cloneAreaTarget(target));
 		}
 	});
 
@@ -264,23 +284,7 @@ function Inner() {
 			if (prevMode === "area" && mode !== "area") {
 				const target = pendingAreaTarget();
 				if (target) {
-					setOptions(
-						"captureTarget",
-						reconcile({
-							variant: "area",
-							screen: target.screen,
-							bounds: {
-								position: {
-									x: target.bounds.position.x,
-									y: target.bounds.position.y,
-								},
-								size: {
-									width: target.bounds.size.width,
-									height: target.bounds.size.height,
-								},
-							},
-						}),
-					);
+					setOptions("captureTarget", reconcile(cloneAreaTarget(target)));
 				}
 				setPendingAreaTarget(null);
 				setInitialAreaBounds(undefined);
@@ -646,20 +650,14 @@ function Inner() {
 													height: windowUnderCursor.bounds.size.height,
 												});
 												if (screenId) {
-													setPendingAreaTarget({
-														variant: "area",
-														screen: screenId,
-														bounds: {
-															position: {
-																x: windowUnderCursor.bounds.position.x,
-																y: windowUnderCursor.bounds.position.y,
-															},
-															size: {
-																width: windowUnderCursor.bounds.size.width,
-																height: windowUnderCursor.bounds.size.height,
-															},
-														},
-													});
+													setPendingAreaTarget(
+														areaTargetFromCropBounds(screenId, {
+															x: windowUnderCursor.bounds.position.x,
+															y: windowUnderCursor.bounds.position.y,
+															width: windowUnderCursor.bounds.size.width,
+															height: windowUnderCursor.bounds.size.height,
+														}),
+													);
 												}
 												setOptions("targetMode", "area");
 												commands.closeTargetSelectOverlays().then(() => {
@@ -724,8 +722,20 @@ function Inner() {
 					const shouldShowOverlay = createMemo(
 						() => isInteracting() || isActiveDisplay(),
 					);
+					const previousAreaBounds = createMemo(() => {
+						const target = options.captureTarget;
+						if (target.variant !== "area" || target.screen !== displayId())
+							return undefined;
+						return cropBoundsFromAreaTarget(target);
+					});
+					const initialCropBounds = createMemo(
+						() => initialAreaBounds() ?? previousAreaBounds(),
+					);
+					const hasInitialArea = createMemo(() =>
+						hasSelectableArea(initialCropBounds()),
+					);
 					const shouldShowSelectionHint = createMemo(() => {
-						if (initialAreaBounds() !== undefined) return false;
+						if (hasInitialArea()) return false;
 						if (!isActiveDisplay()) return false;
 						const bounds = crop();
 						return bounds.width <= 1 && bounds.height <= 1 && !isInteracting();
@@ -914,9 +924,10 @@ function Inner() {
 							{
 								text: "Reset selection",
 								action: () => {
-									cropperRef?.reset();
+									setInitialAreaBounds(CROP_ZERO);
 									setAspect(null);
 									setPendingAreaTarget(null);
+									cropperRef?.reset();
 									revertCamera();
 								},
 							},
@@ -1009,14 +1020,7 @@ function Inner() {
 						const screenId = displayId();
 						if (!screenId) return;
 						const bounds = crop();
-						setPendingAreaTarget({
-							variant: "area",
-							screen: screenId,
-							bounds: {
-								position: { x: bounds.x, y: bounds.y },
-								size: { width: bounds.width, height: bounds.height },
-							},
-						});
+						setPendingAreaTarget(areaTargetFromCropBounds(screenId, bounds));
 					});
 
 					const [wasInteracting, setWasInteracting] = createSignal(false);
@@ -1037,20 +1041,11 @@ function Inner() {
 									window.innerHeight,
 								);
 
-								const target: ScreenCaptureTarget = {
-									variant: "area",
-									screen: displayId(),
-									bounds: {
-										position: {
-											x: cropBounds.x,
-											y: cropBounds.y,
-										},
-										size: {
-											width: cropBounds.width,
-											height: cropBounds.height,
-										},
-									},
-								};
+								const target = areaTargetFromCropBounds(
+									displayId(),
+									cropBounds,
+								);
+								setOptions("captureTarget", reconcile(cloneAreaTarget(target)));
 
 								console.log(
 									"[Screenshot Debug] target being sent:",
@@ -1094,22 +1089,27 @@ function Inner() {
 								style={controlsStyle()}
 							>
 								<div class="flex flex-col items-center">
+									<Show
+										when={
+											options.mode === "screenshot" &&
+											isValid() &&
+											hasInitialArea() &&
+											!isInteracting()
+										}
+									>
+										<RecordingControls
+											target={areaTargetFromCropBounds(displayId(), crop())}
+											disabled={!isValid()}
+											showBackground={controllerInside()}
+											onClose={() => {
+												setOptions("targetMode", null);
+												commands.closeTargetSelectOverlays();
+											}}
+										/>
+									</Show>
 									<Show when={options.mode !== "screenshot"}>
 										<RecordingControls
-											target={{
-												variant: "area",
-												screen: displayId(),
-												bounds: {
-													position: {
-														x: crop().x,
-														y: crop().y,
-													},
-													size: {
-														width: crop().width,
-														height: crop().height,
-													},
-												},
-											}}
+											target={areaTargetFromCropBounds(displayId(), crop())}
 											disabled={!isValid()}
 											showBackground={controllerInside()}
 											onRecordingStart={() => setOriginalCameraBounds(null)}
@@ -1146,7 +1146,7 @@ function Inner() {
 								ref={cropperRef}
 								onInteraction={setIsInteracting}
 								onCropChange={setCrop}
-								initialCrop={() => initialAreaBounds() ?? CROP_ZERO}
+								initialCrop={() => initialCropBounds() ?? CROP_ZERO}
 								showBounds={isValid()}
 								aspectRatio={aspect() ?? undefined}
 								snapToRatioEnabled={snapToRatioEnabled()}
