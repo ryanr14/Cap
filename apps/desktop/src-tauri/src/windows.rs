@@ -8,7 +8,7 @@ use serde::Deserialize;
 use specta::Type;
 use std::{
     ops::Deref,
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
     sync::{
         Arc, Mutex,
@@ -726,6 +726,7 @@ pub enum CapWindowId {
     ModeSelect,
     Debug,
     ScreenshotEditor { id: u32 },
+    PinnedScreenshot { id: u32 },
     Onboarding,
 }
 
@@ -754,6 +755,12 @@ impl FromStr for CapWindowId {
             s if s.starts_with("screenshot-editor-") => Self::ScreenshotEditor {
                 id: s
                     .replace("screenshot-editor-", "")
+                    .parse::<u32>()
+                    .map_err(|e| e.to_string())?,
+            },
+            s if s.starts_with("pinned-screenshot-") => Self::PinnedScreenshot {
+                id: s
+                    .replace("pinned-screenshot-", "")
                     .parse::<u32>()
                     .map_err(|e| e.to_string())?,
             },
@@ -794,6 +801,7 @@ impl std::fmt::Display for CapWindowId {
             Self::Editor { id } => write!(f, "editor-{id}"),
             Self::Debug => write!(f, "debug"),
             Self::ScreenshotEditor { id } => write!(f, "screenshot-editor-{id}"),
+            Self::PinnedScreenshot { id } => write!(f, "pinned-screenshot-{id}"),
             Self::Onboarding => write!(f, "onboarding"),
         }
     }
@@ -812,6 +820,7 @@ impl CapWindowId {
             Self::RecordingControls => "Cap Recording Controls".to_string(),
             Self::Editor { .. } => "Cap Editor".to_string(),
             Self::ScreenshotEditor { .. } => "Cap Screenshot Editor".to_string(),
+            Self::PinnedScreenshot { .. } => "Pinned Screenshot".to_string(),
             Self::ModeSelect => "Cap Mode Selection".to_string(),
             Self::Onboarding => "Welcome to Cap".to_string(),
             Self::Camera => "Cap Camera".to_string(),
@@ -869,6 +878,7 @@ impl CapWindowId {
                 Some(Some(LogicalPosition::new(20.0, 32.0)))
             }
             Self::Camera
+            | Self::PinnedScreenshot { .. }
             | Self::Main
             | Self::Onboarding
             | Self::WindowCaptureOccluder { .. }
@@ -892,6 +902,7 @@ impl CapWindowId {
             }
             Self::Editor { .. } => (1275.0, 800.0),
             Self::ScreenshotEditor { .. } => (800.0, 600.0),
+            Self::PinnedScreenshot { .. } => (260.0, 180.0),
             Self::Settings => (780.0, 560.0),
             Self::Camera => (200.0, 200.0),
             Self::Upgrade => (950.0, 850.0),
@@ -937,6 +948,9 @@ pub enum ShowCapWindow {
     ScreenshotEditor {
         path: PathBuf,
     },
+    PinnedScreenshot {
+        path: PathBuf,
+    },
     Onboarding,
 }
 
@@ -963,6 +977,19 @@ impl ShowCapWindow {
 
         if let Self::ScreenshotEditor { path } = &self {
             let state = app.state::<ScreenshotEditorWindowIds>();
+            {
+                let mut s = state.ids.lock().unwrap();
+                if !s.iter().any(|(p, _)| p == path) {
+                    let id = state
+                        .counter
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    s.push((path.clone(), id));
+                }
+            }
+        }
+
+        if let Self::PinnedScreenshot { path } = &self {
+            let state = app.state::<PinnedScreenshotWindowIds>();
             {
                 let mut s = state.ids.lock().unwrap();
                 if !s.iter().any(|(p, _)| p == path) {
@@ -1768,6 +1795,44 @@ impl ShowCapWindow {
                     if let Err(e) = window.set_position(tauri::LogicalPosition::new(pos_x, pos_y)) {
                         warn!(
                             "Failed to position ScreenshotEditor window on Windows: {}",
+                            e
+                        );
+                    }
+                }
+
+                window.show().ok();
+                window.set_focus().ok();
+
+                window
+            }
+            Self::PinnedScreenshot { path } => {
+                let (width, height) = pinned_screenshot_window_size(path);
+                let window = self
+                    .window_builder(app, "/pinned-screenshot")
+                    .inner_size(width, height)
+                    .min_inner_size(260.0, 180.0)
+                    .resizable(true)
+                    .maximizable(false)
+                    .always_on_top(true)
+                    .visible_on_all_workspaces(true)
+                    .focused(true)
+                    .build()?;
+
+                let (pos_x, pos_y) = cursor_monitor.center_position(width, height);
+                let _ = window.set_position(tauri::LogicalPosition::new(pos_x, pos_y));
+
+                #[cfg(windows)]
+                {
+                    use tauri::LogicalSize;
+                    if let Err(e) = window.set_size(LogicalSize::new(width, height)) {
+                        warn!(
+                            "Failed to set PinnedScreenshot window size on Windows: {}",
+                            e
+                        );
+                    }
+                    if let Err(e) = window.set_position(tauri::LogicalPosition::new(pos_x, pos_y)) {
+                        warn!(
+                            "Failed to position PinnedScreenshot window on Windows: {}",
                             e
                         );
                     }
@@ -2613,8 +2678,41 @@ impl ShowCapWindow {
                 let id = s.iter().find(|(p, _)| p == path).unwrap().1;
                 CapWindowId::ScreenshotEditor { id }
             }
+            ShowCapWindow::PinnedScreenshot { path } => {
+                let state = app.state::<PinnedScreenshotWindowIds>();
+                let s = state.ids.lock().unwrap();
+                let id = s.iter().find(|(p, _)| p == path).unwrap().1;
+                CapWindowId::PinnedScreenshot { id }
+            }
         }
     }
+}
+
+fn pinned_screenshot_window_size(path: &Path) -> (f64, f64) {
+    const MAX_WIDTH: f64 = 900.0;
+    const MAX_HEIGHT: f64 = 680.0;
+    const MIN_WIDTH: f64 = 260.0;
+    const MIN_HEIGHT: f64 = 180.0;
+    const HEADER_HEIGHT: f64 = 42.0;
+
+    let Ok((image_width, image_height)) = image::image_dimensions(path) else {
+        return (520.0, 360.0);
+    };
+
+    let image_width = f64::from(image_width);
+    let image_height = f64::from(image_height);
+    if image_width <= 0.0 || image_height <= 0.0 {
+        return (520.0, 360.0);
+    }
+
+    let image_max_height = MAX_HEIGHT - HEADER_HEIGHT;
+    let scale = (MAX_WIDTH / image_width)
+        .min(image_max_height / image_height)
+        .min(1.0);
+    let width = (image_width * scale).clamp(MIN_WIDTH, MAX_WIDTH);
+    let height = (image_height * scale + HEADER_HEIGHT).clamp(MIN_HEIGHT, MAX_HEIGHT);
+
+    (width, height)
 }
 
 #[cfg(target_os = "macos")]
@@ -2955,5 +3053,17 @@ pub struct ScreenshotEditorWindowIds {
 impl ScreenshotEditorWindowIds {
     pub fn get(app: &AppHandle) -> Self {
         app.state::<ScreenshotEditorWindowIds>().deref().clone()
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct PinnedScreenshotWindowIds {
+    pub ids: Arc<Mutex<Vec<(PathBuf, u32)>>>,
+    pub counter: Arc<AtomicU32>,
+}
+
+impl PinnedScreenshotWindowIds {
+    pub fn get(app: &AppHandle) -> Self {
+        app.state::<PinnedScreenshotWindowIds>().deref().clone()
     }
 }

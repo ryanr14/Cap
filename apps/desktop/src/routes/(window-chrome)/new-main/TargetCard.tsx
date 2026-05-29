@@ -1,5 +1,5 @@
 import { ProgressCircle } from "@cap/ui-solid";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { ask, save } from "@tauri-apps/plugin-dialog";
 import { remove } from "@tauri-apps/plugin-fs";
 import * as shell from "@tauri-apps/plugin-shell";
@@ -23,6 +23,7 @@ import IconLucideCopy from "~icons/lucide/copy";
 import IconLucideEdit from "~icons/lucide/edit";
 import IconLucideFolder from "~icons/lucide/folder";
 import IconLucideImage from "~icons/lucide/image";
+import IconLucidePin from "~icons/lucide/pin";
 import IconLucideRotateCcw from "~icons/lucide/rotate-ccw";
 import IconLucideSave from "~icons/lucide/save";
 import IconLucideSquarePlay from "~icons/lucide/square-play";
@@ -253,6 +254,18 @@ export default function TargetCard(props: TargetCardProps) {
 		}
 	};
 
+	const handlePinScreenshot = async (e: MouseEvent) => {
+		e.stopPropagation();
+		const screenshot = screenshotTarget();
+		if (!screenshot) return;
+		try {
+			await invoke("pin_screenshot", { path: screenshot.path });
+		} catch (error) {
+			console.error("Failed to pin screenshot:", error);
+			toast.error("Failed to pin screenshot");
+		}
+	};
+
 	const handleOpenRecordingEditor = (e: MouseEvent) => {
 		e.stopPropagation();
 		const recording = recordingTarget();
@@ -390,6 +403,16 @@ export default function TargetCard(props: TargetCardProps) {
 				</div>
 				<Show when={local.variant === "screenshot"}>
 					<div class="flex items-center justify-between px-2 pb-1.5 pt-0.5 gap-1">
+						<Tooltip content="Pin">
+							<div
+								role="button"
+								tabIndex={-1}
+								onClick={handlePinScreenshot}
+								class="flex-1 flex items-center justify-center p-1 rounded-sm hover:bg-gray-5 text-gray-11 hover:text-gray-12 transition-colors"
+							>
+								<IconLucidePin class="size-3.5" />
+							</div>
+						</Tooltip>
 						<Tooltip content="Edit">
 							<div
 								role="button"

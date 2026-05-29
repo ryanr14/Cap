@@ -32,6 +32,9 @@ pub enum DeepLinkAction {
     OpenSettings {
         page: Option<String>,
     },
+    PinScreenshot {
+        path: PathBuf,
+    },
 }
 
 pub fn handle(app_handle: &AppHandle, urls: Vec<Url>) {
@@ -153,6 +156,11 @@ impl DeepLinkAction {
             DeepLinkAction::OpenSettings { page } => {
                 crate::show_window(app.clone(), ShowCapWindow::Settings { page }).await
             }
+            DeepLinkAction::PinScreenshot { path } => ShowCapWindow::PinnedScreenshot { path }
+                .show(app)
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
         }
     }
 }

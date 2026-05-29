@@ -5,7 +5,7 @@ import {
 	queryOptions,
 	useQueryClient,
 } from "@tanstack/solid-query";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { remove } from "@tauri-apps/plugin-fs";
 import {
@@ -27,6 +27,7 @@ import IconLucideCopy from "~icons/lucide/copy";
 import IconLucideEdit from "~icons/lucide/edit";
 import IconLucideFolder from "~icons/lucide/folder";
 import IconLucideImport from "~icons/lucide/import";
+import IconLucidePin from "~icons/lucide/pin";
 import IconLucideSearch from "~icons/lucide/search";
 import { Section, SettingsPageContent } from "./Setting";
 
@@ -115,6 +116,15 @@ export default function Screenshots() {
 		commands.copyScreenshotToClipboard(path);
 	};
 
+	const handlePinScreenshot = async (path: string) => {
+		trackEvent("screenshot_pin_clicked");
+		try {
+			await invoke("pin_screenshot", { path });
+		} catch (error) {
+			console.error("Failed to pin screenshot:", error);
+		}
+	};
+
 	const handleImportImage = async () => {
 		try {
 			await importImageFromPicker();
@@ -190,6 +200,9 @@ export default function Screenshots() {
 											onClick={() => handleScreenshotClick(screenshot)}
 											onOpenEditor={() => handleOpenEditor(screenshot.path)}
 											onOpenFolder={() => handleOpenFolder(screenshot.path)}
+											onPinScreenshot={() =>
+												handlePinScreenshot(screenshot.path)
+											}
 											onCopyImageToClipboard={() =>
 												handleCopyImageToClipboard(screenshot.path)
 											}
@@ -228,6 +241,7 @@ function ScreenshotItem(props: {
 	onClick: () => void;
 	onOpenEditor: () => void;
 	onOpenFolder: () => void;
+	onPinScreenshot: () => void;
 	onCopyImageToClipboard: () => void;
 }) {
 	const [imageExists, setImageExists] = createSignal(true);
@@ -260,6 +274,13 @@ function ScreenshotItem(props: {
 					onClick={props.onOpenFolder}
 				>
 					<IconLucideFolder class="size-4" />
+				</TooltipIconButton>
+
+				<TooltipIconButton
+					tooltipText="Pin screenshot"
+					onClick={props.onPinScreenshot}
+				>
+					<IconLucidePin class="size-4" />
 				</TooltipIconButton>
 
 				<TooltipIconButton

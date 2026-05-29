@@ -109,8 +109,8 @@ use upload::{create_or_get_video, upload_image, upload_video};
 use web_api::AuthedApiError;
 use web_api::ManagerExt as WebManagerExt;
 use windows::{
-    CapWindowId, EditorWindowIds, ScreenshotEditorWindowIds, ShowCapWindow, hide_overlay,
-    set_window_transparent, show_overlay,
+    CapWindowId, EditorWindowIds, PinnedScreenshotWindowIds, ScreenshotEditorWindowIds,
+    ShowCapWindow, hide_overlay, set_window_transparent, show_overlay,
 };
 
 use crate::{recording::start_recording, upload::build_video_meta};
@@ -3697,6 +3697,39 @@ async fn show_window(app: AppHandle, window: ShowCapWindow) -> Result<(), String
     Ok(())
 }
 
+#[tauri::command]
+#[specta::specta]
+#[instrument(skip(app))]
+async fn pin_screenshot(app: AppHandle, path: PathBuf) -> Result<(), String> {
+    if !path.is_file() {
+        return Err(format!("Screenshot file not found: {}", path.display()));
+    }
+
+    (ShowCapWindow::PinnedScreenshot { path })
+        .show(&app)
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+fn get_pinned_screenshot_window_path(window: Window) -> Result<PathBuf, String> {
+    let CapWindowId::PinnedScreenshot { id } =
+        CapWindowId::from_str(window.label()).map_err(|e| e.to_string())?
+    else {
+        return Err("Invalid window".to_string());
+    };
+
+    let window_ids = PinnedScreenshotWindowIds::get(window.app_handle());
+    let window_ids = window_ids.ids.lock().unwrap();
+    let Some((path, _)) = window_ids.iter().find(|(_, window_id)| *window_id == id) else {
+        return Err("Pinned screenshot not found".to_string());
+    };
+
+    Ok(path.clone())
+}
+
 #[tauri::command(async)]
 #[specta::specta]
 #[instrument]
@@ -4058,6 +4091,8 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
             windows::apply_macos_liquid_glass_background,
             global_message_dialog,
             show_window,
+            pin_screenshot,
+            get_pinned_screenshot_window_path,
             write_clipboard_string,
             platform::perform_haptic_feedback,
             platform::is_system_audio_capture_supported,
@@ -4239,11 +4274,13 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                     CapWindowId::Upgrade.label().as_str(),
                     "editor",
                     "screenshot-editor",
+                    "pinned-screenshot",
                 ])
                 .map_label(|label| match label {
                     label if label.starts_with("camera-") => "camera",
                     label if label.starts_with("editor-") => "editor",
                     label if label.starts_with("screenshot-editor-") => "screenshot-editor",
+                    label if label.starts_with("pinned-screenshot-") => "pinned-screenshot",
                     label if label.starts_with("window-capture-occluder-") => {
                         "window-capture-occluder"
                     }
@@ -4267,6 +4304,7 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
             app.manage(target_select_overlay::WindowFocusManager::default());
             app.manage(EditorWindowIds::default());
             app.manage(ScreenshotEditorWindowIds::default());
+            app.manage(PinnedScreenshotWindowIds::default());
             #[cfg(target_os = "macos")]
             app.manage(crate::platform::ScreenCapturePrewarmer::default());
             #[cfg(target_os = "macos")]
@@ -4743,6 +4781,16 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
 
                                 restore_main_windows_if_no_editors(app);
                             }
+                            CapWindowId::PinnedScreenshot { id } => {
+                                let window_ids =
+                                    PinnedScreenshotWindowIds::get(window.app_handle());
+                                match window_ids.ids.lock() {
+                                    Ok(mut ids) => ids.retain(|(_, _id)| *_id != id),
+                                    Err(err) => {
+                                        warn!(error = %err, "Pinned screenshot window ids lock poisoned");
+                                    }
+                                }
+                            }
                             CapWindowId::Settings => {
                                 for (label, window) in app.webview_windows() {
                                     if let Ok(id) = CapWindowId::from_str(&label) {
@@ -5001,6 +5049,7 @@ fn handle_run_event(_handle: &AppHandle, event: tauri::RunEvent) {
             let has_window = _handle.webview_windows().iter().any(|(label, _)| {
                 label.starts_with("editor-")
                     || label.starts_with("screenshot-editor-")
+                    || label.starts_with("pinned-screenshot-")
                     || label.as_str() == "settings"
                     || label.as_str() == "signin"
                     || (should_focus_onboarding && label.as_str() == "onboarding")
@@ -5013,6 +5062,7 @@ fn handle_run_event(_handle: &AppHandle, event: tauri::RunEvent) {
                     .find(|(label, _)| {
                         label.starts_with("editor-")
                             || label.starts_with("screenshot-editor-")
+                            || label.starts_with("pinned-screenshot-")
                             || label.as_str() == "settings"
                             || label.as_str() == "signin"
                             || (should_focus_onboarding && label.as_str() == "onboarding")

@@ -1,4 +1,5 @@
 import { DropdownMenu } from "@kobalte/core/dropdown-menu";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { remove } from "@tauri-apps/plugin-fs";
@@ -12,6 +13,7 @@ import IconCapTrash from "~icons/cap/trash";
 import IconLucideCopy from "~icons/lucide/copy";
 import IconLucideFolder from "~icons/lucide/folder";
 import IconLucideMoreHorizontal from "~icons/lucide/more-horizontal";
+import IconLucidePin from "~icons/lucide/pin";
 import IconLucideSave from "~icons/lucide/save";
 import { AnnotationTools } from "./AnnotationTools";
 import { useScreenshotEditorContext } from "./context";
@@ -126,6 +128,21 @@ export function Header() {
 				)}
 			>
 				<div class="w-px h-6 bg-gray-4 mx-1" />
+
+				<EditorButton
+					tooltipText="Pin Screenshot"
+					onClick={() => {
+						const screenshotPath = path();
+						if (!screenshotPath) return;
+						invoke("pin_screenshot", { path: screenshotPath }).catch(
+							(error: unknown) => {
+								console.error("Failed to pin screenshot:", error);
+							},
+						);
+					}}
+					disabled={!path()}
+					leftIcon={<IconLucidePin class="size-4" />}
+				/>
 
 				<EditorButton
 					onClick={() => {
