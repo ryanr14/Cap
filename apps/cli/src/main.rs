@@ -1,4 +1,5 @@
 mod record;
+mod scrolling_capture;
 
 use std::{
     io::{Write, stderr, stdout},
@@ -11,6 +12,7 @@ use cap_project::RecordingMeta;
 use cap_project::XY;
 use clap::{Args, Parser, Subcommand};
 use record::RecordStart;
+use scrolling_capture::ScrollingCaptureStitch;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::*;
@@ -32,6 +34,8 @@ enum Commands {
     ExportPreview(ExportPreview),
     /// Start a recording or list available capture targets and devices
     Record(RecordArgs),
+    /// Stitch manually captured scrolling screenshot frames into one image
+    ScrollingCaptureStitch(ScrollingCaptureStitch),
 }
 
 impl Commands {
@@ -196,6 +200,9 @@ window {}:
                 args.run().await?;
             }
         },
+        Commands::ScrollingCaptureStitch(command) => {
+            command.run()?;
+        }
     }
 
     Ok(())
