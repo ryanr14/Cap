@@ -4,6 +4,9 @@ import { createElementBounds } from "@solid-primitives/bounds";
 import { makePersisted } from "@solid-primitives/storage";
 import { createMutation, createQuery } from "@tanstack/solid-query";
 import { Channel, convertFileSrc } from "@tauri-apps/api/core";
+import { ask } from "@tauri-apps/plugin-dialog";
+import { remove } from "@tauri-apps/plugin-fs";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { cx } from "cva";
 import {
 	type Accessor,
@@ -34,9 +37,10 @@ import {
 	type UploadResult,
 } from "~/utils/tauri";
 import IconCapEditor from "~icons/cap/editor";
+import IconCapTrash from "~icons/cap/trash";
 import IconCapUpload from "~icons/cap/upload";
 import IconLucideClock from "~icons/lucide/clock";
-import IconLucideEye from "~icons/lucide/eye";
+import IconLucideFolder from "~icons/lucide/folder";
 import { FPS, OUTPUT_SIZE } from "./editor/context";
 
 type MediaEntry = {
@@ -87,6 +91,24 @@ export default function () {
 		}, 3000);
 	};
 
+	const removeMediaEntry = (
+		path: string,
+		type?: "recording" | "screenshot",
+	) => {
+		const setMedia = type === "screenshot" ? setScreenshots : setRecordings;
+		setMedia(
+			produce((state) => {
+				const index = state.findIndex((entry) => entry.path === path);
+				if (index !== -1) {
+					state.splice(index, 1);
+				}
+			}),
+		);
+	};
+
+	const screenshotProjectPath = (path: string) =>
+		path.replace(/[/\\][^/\\]+$/, "");
+
 	createTauriEventListener(events.newStudioRecordingAdded, (payload) => {
 		addMediaEntry(payload.path, "recording");
 	});
@@ -119,6 +141,26 @@ export default function () {
 
 								const type = media.type ?? "recording";
 								const isRecording = type !== "screenshot";
+								const removeCurrentMedia = () =>
+									removeMediaEntry(media.path, type);
+								const openScreenshotEditor = async () => {
+									await commands.showWindow({
+										ScreenshotEditor: { path: media.path },
+									});
+									removeCurrentMedia();
+								};
+								const deleteScreenshot = async () => {
+									if (
+										!(await ask(
+											"Are you sure you want to delete this screenshot?",
+										))
+									)
+										return;
+									await remove(screenshotProjectPath(media.path), {
+										recursive: true,
+									});
+									removeCurrentMedia();
+								};
 
 								const { copy, save, upload, actionState } =
 									createRecordingMutations(media, (e) => {
@@ -295,19 +337,7 @@ export default function () {
 														tooltipText="Close"
 														tooltipPlacement="right"
 														onClick={() => {
-															const setMedia = isRecording
-																? setRecordings
-																: setScreenshots;
-															setMedia(
-																produce((state) => {
-																	const index = state.findIndex(
-																		(entry) => entry.path === media.path,
-																	);
-																	if (index !== -1) {
-																		state.splice(index, 1);
-																	}
-																}),
-															);
+															removeCurrentMedia();
 														}}
 													>
 														<IconCapCircleX class="size-4" />
@@ -318,20 +348,8 @@ export default function () {
 															tooltipText="Edit"
 															tooltipPlacement="right"
 															onClick={() => {
-																const setMedia = isRecording
-																	? setRecordings
-																	: setScreenshots;
-																setMedia(
-																	produce((state) => {
-																		const index = state.findIndex(
-																			(entry) => entry.path === media.path,
-																		);
-																		if (index !== -1) {
-																			state.splice(index, 1);
-																		}
-																	}),
-																);
-																commands.showWindow({
+																removeCurrentMedia();
+																void commands.showWindow({
 																	Editor: { project_path: media.path },
 																});
 															}}
@@ -341,13 +359,20 @@ export default function () {
 													) : (
 														<TooltipIconButton
 															class="absolute bottom-3 left-3 z-20"
-															tooltipText="View"
+															tooltipText="Reveal in Folder"
 															tooltipPlacement="right"
 															onClick={() => {
-																commands.openFilePath(media.path);
+																void revealItemInDir(media.path).catch(
+																	(error) => {
+																		console.error(
+																			"Failed to reveal screenshot:",
+																			error,
+																		);
+																	},
+																);
 															}}
 														>
-															<IconLucideEye class="size-4" />
+															<IconLucideFolder class="size-4" />
 														</TooltipIconButton>
 													)}
 													<TooltipIconButton
@@ -362,25 +387,54 @@ export default function () {
 													>
 														<IconCapCopy class="size-4" />
 													</TooltipIconButton>
-													<TooltipIconButton
-														class="absolute right-3 bottom-3 z-998"
-														tooltipText={
-															recordingMeta.data?.sharing
-																? "Copy Shareable Link"
-																: "Create Shareable Link"
-														}
-														tooltipPlacement="left"
-														onClick={() => upload.mutate()}
-													>
-														<IconCapUpload class="size-4" />
-													</TooltipIconButton>
+													{isRecording ? (
+														<TooltipIconButton
+															class="absolute right-3 bottom-3 z-998"
+															tooltipText={
+																recordingMeta.data?.sharing
+																	? "Copy Shareable Link"
+																	: "Create Shareable Link"
+															}
+															tooltipPlacement="left"
+															onClick={() => upload.mutate()}
+														>
+															<IconCapUpload class="size-4" />
+														</TooltipIconButton>
+													) : (
+														<TooltipIconButton
+															class="absolute right-3 bottom-3 z-998"
+															tooltipText="Delete"
+															tooltipPlacement="left"
+															onClick={() => {
+																void deleteScreenshot().catch((error) => {
+																	console.error(
+																		"Failed to delete screenshot:",
+																		error,
+																	);
+																});
+															}}
+														>
+															<IconCapTrash class="size-4" />
+														</TooltipIconButton>
+													)}
 													<div class="flex absolute inset-0 justify-center items-center">
 														<Button
 															variant="white"
 															size="sm"
-															onClick={() => save.mutate()}
+															onClick={() => {
+																if (isRecording) {
+																	save.mutate();
+																	return;
+																}
+																void openScreenshotEditor().catch((error) => {
+																	console.error(
+																		"Failed to open screenshot editor:",
+																		error,
+																	);
+																});
+															}}
 														>
-															Export
+															{isRecording ? "Export" : "Edit"}
 														</Button>
 													</div>
 												</div>

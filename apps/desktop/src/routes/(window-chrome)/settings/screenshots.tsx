@@ -8,6 +8,8 @@ import {
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { remove } from "@tauri-apps/plugin-fs";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import * as shell from "@tauri-apps/plugin-shell";
 import {
 	createEffect,
 	createMemo,
@@ -25,6 +27,7 @@ import { commands, events, type RecordingMeta } from "~/utils/tauri";
 import IconCapTrash from "~icons/cap/trash";
 import IconLucideCopy from "~icons/lucide/copy";
 import IconLucideEdit from "~icons/lucide/edit";
+import IconLucideEye from "~icons/lucide/eye";
 import IconLucideFolder from "~icons/lucide/folder";
 import IconLucideImport from "~icons/lucide/import";
 import IconLucideSearch from "~icons/lucide/search";
@@ -87,9 +90,8 @@ export default function Screenshots() {
 	});
 
 	const handleScreenshotClick = (screenshot: Screenshot) => {
-		trackEvent("screenshot_view_clicked");
-		// events.newScreenshotAdded.emit({ path: screenshot.path });
-		commands.showWindow({
+		trackEvent("screenshot_editor_clicked");
+		void commands.showWindow({
 			ScreenshotEditor: {
 				path: screenshot.path,
 			},
@@ -98,21 +100,32 @@ export default function Screenshots() {
 
 	const handleOpenEditor = (path: string) => {
 		trackEvent("screenshot_editor_clicked");
-		commands.showWindow({
+		void commands.showWindow({
 			ScreenshotEditor: {
 				path,
 			},
 		});
 	};
 
-	const handleOpenFolder = (path: string) => {
-		trackEvent("screenshot_folder_clicked");
-		commands.openFilePath(path);
+	const handleOpenImage = (path: string) => {
+		trackEvent("screenshot_open_clicked");
+		void shell.open(path).catch((error) => {
+			console.error("Failed to open screenshot:", error);
+		});
+	};
+
+	const handleRevealScreenshot = (path: string) => {
+		trackEvent("screenshot_reveal_clicked");
+		void revealItemInDir(path).catch((error) => {
+			console.error("Failed to reveal screenshot:", error);
+		});
 	};
 
 	const handleCopyImageToClipboard = (path: string) => {
 		trackEvent("screenshot_copy_clicked");
-		commands.copyScreenshotToClipboard(path);
+		void commands.copyScreenshotToClipboard(path).catch((error) => {
+			console.error("Failed to copy screenshot:", error);
+		});
 	};
 
 	const handleImportImage = async () => {
@@ -189,7 +202,10 @@ export default function Screenshots() {
 											screenshot={screenshot}
 											onClick={() => handleScreenshotClick(screenshot)}
 											onOpenEditor={() => handleOpenEditor(screenshot.path)}
-											onOpenFolder={() => handleOpenFolder(screenshot.path)}
+											onOpenImage={() => handleOpenImage(screenshot.path)}
+											onRevealScreenshot={() =>
+												handleRevealScreenshot(screenshot.path)
+											}
 											onCopyImageToClipboard={() =>
 												handleCopyImageToClipboard(screenshot.path)
 											}
@@ -227,7 +243,8 @@ function ScreenshotItem(props: {
 	screenshot: Screenshot;
 	onClick: () => void;
 	onOpenEditor: () => void;
-	onOpenFolder: () => void;
+	onOpenImage: () => void;
+	onRevealScreenshot: () => void;
 	onCopyImageToClipboard: () => void;
 }) {
 	const [imageExists, setImageExists] = createSignal(true);
@@ -236,37 +253,47 @@ function ScreenshotItem(props: {
 	return (
 		<li
 			onClick={props.onClick}
-			class="flex flex-row justify-between p-3 not-last:border-b not-last:border-gray-3 items-center w-full cursor-pointer hover:bg-gray-3 transition-colors duration-200"
+			class="flex flex-row justify-between gap-3 p-3 not-last:border-b not-last:border-gray-3 items-center w-full cursor-pointer hover:bg-gray-3 transition-colors duration-200"
 		>
-			<div class="flex gap-5 items-center">
+			<div class="flex gap-5 items-center min-w-0">
 				<Show
 					when={imageExists()}
-					fallback={<div class="mr-4 rounded-sm bg-gray-10 size-11" />}
+					fallback={<div class="mr-4 rounded-sm bg-gray-10 size-11 shrink-0" />}
 				>
 					<img
-						class="object-cover rounded-sm size-12"
+						class="object-cover rounded-sm size-12 shrink-0"
 						alt="Screenshot thumbnail"
 						src={convertFileSrc(props.screenshot.path)}
 						onError={() => setImageExists(false)}
 					/>
 				</Show>
-				<div class="flex flex-col gap-2">
-					<span>{props.screenshot.pretty_name}</span>
+				<div class="flex flex-col gap-2 min-w-0">
+					<span class="truncate">{props.screenshot.pretty_name}</span>
 				</div>
 			</div>
-			<div class="flex gap-2 items-center">
-				<TooltipIconButton
-					tooltipText="Open folder"
-					onClick={props.onOpenFolder}
+			<div class="flex gap-1.5 items-center shrink-0">
+				<Button
+					variant="white"
+					size="sm"
+					class="h-8 px-3 shrink-0 flex items-center gap-1.5"
+					onClick={(event) => {
+						event.stopPropagation();
+						props.onOpenEditor();
+					}}
 				>
-					<IconLucideFolder class="size-4" />
+					<IconLucideEdit class="size-3.5" />
+					<span>Edit</span>
+				</Button>
+
+				<TooltipIconButton tooltipText="Open image" onClick={props.onOpenImage}>
+					<IconLucideEye class="size-4" />
 				</TooltipIconButton>
 
 				<TooltipIconButton
-					tooltipText="Open in editor"
-					onClick={props.onOpenEditor}
+					tooltipText="Reveal in folder"
+					onClick={props.onRevealScreenshot}
 				>
-					<IconLucideEdit class="size-4" />
+					<IconLucideFolder class="size-4" />
 				</TooltipIconButton>
 
 				<TooltipIconButton
@@ -286,7 +313,7 @@ function ScreenshotItem(props: {
 						const parent = props.screenshot.path.replace(/[/\\][^/\\]+$/, "");
 						await remove(parent, { recursive: true });
 
-						queryClient.invalidateQueries({ queryKey: ["screenshots"] });
+						await queryClient.invalidateQueries({ queryKey: ["screenshots"] });
 					}}
 				>
 					<IconCapTrash class="size-4" />
