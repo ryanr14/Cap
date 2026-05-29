@@ -4,6 +4,7 @@ import Tooltip from "~/components/Tooltip";
 import IconLucideArrowUpRight from "~icons/lucide/arrow-up-right";
 import IconLucideCircle from "~icons/lucide/circle";
 import IconLucideEyeOff from "~icons/lucide/eye-off";
+import IconLucideHighlighter from "~icons/lucide/highlighter";
 import IconLucideLayers from "~icons/lucide/layers";
 import IconLucideMousePointer2 from "~icons/lucide/mouse-pointer-2";
 import IconLucideSquare from "~icons/lucide/square";
@@ -50,6 +51,11 @@ export function AnnotationTools() {
 				icon={IconLucideSquare}
 				label="Rectangle"
 				shortcut="R"
+			/>
+			<ToolButton
+				tool="highlight"
+				icon={IconLucideHighlighter}
+				label="Highlighter"
 			/>
 			<ToolButton
 				tool="mask"

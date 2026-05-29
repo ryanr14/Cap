@@ -155,6 +155,31 @@ export function AnnotationLayer(props: {
 		};
 	};
 
+	const getAnnotationType = (
+		tool: Exclude<ReturnType<typeof activeTool>, "select">,
+	): AnnotationType => (tool === "highlight" ? "rectangle" : tool);
+
+	const getAnnotationStyle = (
+		tool: Exclude<ReturnType<typeof activeTool>, "select">,
+		annotationType: AnnotationType,
+	) => {
+		if (tool === "highlight") {
+			return {
+				strokeColor: "transparent",
+				strokeWidth: 1,
+				fillColor: "#FFE45C",
+				opacity: 0.45,
+			};
+		}
+
+		return {
+			strokeColor: annotationType === "mask" ? "transparent" : "#F05656",
+			strokeWidth: annotationType === "mask" ? 0 : 4,
+			fillColor: "transparent",
+			opacity: 1,
+		};
+	};
+
 	const handleMouseDown = (e: MouseEvent) => {
 		// If editing text, click outside commits change (handled by blur on input usually, but safety here)
 		if (textEditingId()) {
@@ -181,8 +206,10 @@ export function AnnotationLayer(props: {
 
 		const svg = e.currentTarget as SVGSVGElement;
 		const point = getSvgPoint(e, svg);
+		const annotationType = getAnnotationType(tool);
+		const annotationStyle = getAnnotationStyle(tool, annotationType);
 		const startX =
-			tool === "mask"
+			annotationType === "mask"
 				? clampValue(
 						point.x,
 						props.imageRect.x,
@@ -190,7 +217,7 @@ export function AnnotationLayer(props: {
 					)
 				: point.x;
 		const startY =
-			tool === "mask"
+			annotationType === "mask"
 				? clampValue(
 						point.y,
 						props.imageRect.y,
@@ -202,29 +229,29 @@ export function AnnotationLayer(props: {
 		const id = crypto.randomUUID();
 		const newAnn: Annotation = {
 			id,
-			type: tool as AnnotationType,
+			type: annotationType,
 			x: startX,
 			y: startY,
 			width: 0,
 			height: 0,
-			strokeColor: tool === "mask" ? "transparent" : "#F05656",
-			strokeWidth: tool === "mask" ? 0 : 4,
-			fillColor: "transparent",
-			opacity: 1,
+			strokeColor: annotationStyle.strokeColor,
+			strokeWidth: annotationStyle.strokeWidth,
+			fillColor: annotationStyle.fillColor,
+			opacity: annotationStyle.opacity,
 			rotation: 0,
-			text: tool === "text" ? "Text" : null,
-			maskType: tool === "mask" ? "pixelate" : null,
-			maskLevel: tool === "mask" ? 7 : null,
+			text: annotationType === "text" ? "Text" : null,
+			maskType: annotationType === "mask" ? "pixelate" : null,
+			maskLevel: annotationType === "mask" ? 7 : null,
 		};
 
-		if (tool === "text") {
+		if (annotationType === "text") {
 			newAnn.height = 40; // Default font size
 			newAnn.width = 150; // Default width
 		}
 
 		setTempAnnotation(newAnn);
 
-		if (tool === "mask") {
+		if (annotationType === "mask") {
 			setAnnotations((prev) => [...prev, newAnn]);
 		}
 	};

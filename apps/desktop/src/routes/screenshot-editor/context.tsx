@@ -82,7 +82,7 @@ function convertNv12ToRgba(
 
 export type ScreenshotProject = ProjectConfiguration;
 export type { Annotation, AnnotationType };
-export type ScreenshotEditorTool = AnnotationType | "select";
+export type ScreenshotEditorTool = AnnotationType | "highlight" | "select";
 
 export type CurrentDialog =
 	| { type: "createPreset" }
