@@ -80,6 +80,13 @@ Additionally, `unused_must_use = "deny"` applies to all Rust code: every `Result
 - Conventional style: `feat:`, `fix:`, `chore:`, `improve:`, `refactor:`, `docs:` (e.g., `fix: hide watermark for pro users`).
 - PRs: clear description, linked issues, screenshots/GIFs for UI, env/migration notes. Keep scope tight and update docs when behavior changes.
 
+## Ryan Local Workflow
+
+- Keep `/Applications/Cap.app` as the normal release app. Use `/Applications/Cap - Development.app` for local builds/tests.
+- Build the fastest useful local test artifact before broader release workflow when Ryan asks how to test a desktop change.
+- `closeScreenshotEditorAfterCopy` behavior is opt-in and persisted; do not make close-after-copy the hardcoded default.
+- Inventory existing app bundles before changing launch targets or claiming which Cap copy is in use.
+
 ## Agent‑Specific Practices
 - Do not start extra servers; use `pnpm dev:web` or `pnpm dev:desktop` as needed.
 - Prefer existing scripts and Turbo filters over ad‑hoc commands; clear `.turbo` only when necessary.

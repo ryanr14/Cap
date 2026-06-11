@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import { createSignal } from "solid-js";
@@ -5,6 +7,10 @@ import toast from "solid-toast";
 import { commands } from "~/utils/tauri";
 import { getArrowHeadPoints } from "./arrow";
 import { type Annotation, useScreenshotEditorContext } from "./context";
+
+type ExportImageOptions = {
+	deleteOriginalAfterSave?: boolean;
+};
 
 export function useScreenshotExport() {
 	const editorCtx = useScreenshotEditorContext();
@@ -257,7 +263,10 @@ export function useScreenshotExport() {
 		);
 	};
 
-	const exportImage = async (destination: "file" | "clipboard") => {
+	const exportImage = async (
+		destination: "file" | "clipboard",
+		options: ExportImageOptions = {},
+	) => {
 		setIsExporting(true);
 		try {
 			const canvas = document.createElement("canvas");
@@ -371,8 +380,30 @@ export function useScreenshotExport() {
 					});
 					if (savePath) {
 						await writeFile(savePath, uint8Array);
-						toast.success("Screenshot saved!");
+						let deletedOriginal = false;
+						if (options.deleteOriginalAfterSave) {
+							try {
+								deletedOriginal = await invoke<boolean>(
+									"delete_screenshot_editor_source",
+								);
+							} catch {
+								toast.error(
+									"Screenshot saved, but the original could not be deleted.",
+								);
+								setDialog({ ...dialog(), open: false });
+								return;
+							}
+						}
+
+						toast.success(
+							deletedOriginal
+								? "Screenshot saved. Original deleted."
+								: "Screenshot saved!",
+						);
 						setDialog({ ...dialog(), open: false });
+						if (deletedOriginal) {
+							await getCurrentWindow().close();
+						}
 					}
 				} else {
 					const clipboardItem =

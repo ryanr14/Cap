@@ -1,11 +1,12 @@
 import { DropdownMenu } from "@kobalte/core/dropdown-menu";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { remove } from "@tauri-apps/plugin-fs";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { type as ostype } from "@tauri-apps/plugin-os";
 import { cx } from "cva";
-import { createEffect, onCleanup, Suspense } from "solid-js";
+import { createEffect, onCleanup, Show, Suspense } from "solid-js";
 import CaptionControlsWindows11 from "~/components/titlebar/controls/CaptionControlsWindows11";
 import IconCapCrop from "~icons/cap/crop";
 import IconCapTrash from "~icons/cap/trash";
@@ -41,6 +42,8 @@ export function Header() {
 		selectedAnnotationId,
 	} = ctx;
 	const path = () => ctx.editorInstance()?.path ?? "";
+	const hasManagedOriginal = () =>
+		/[/\\][^/\\]+\.cap(?:[/\\][^/\\]+)?$/.test(path());
 
 	const { exportImage, isExporting } = useScreenshotExport();
 
@@ -91,6 +94,17 @@ export function Header() {
 	};
 
 	const isCropDisabled = () => !originalImageSize() || !isImageFileReady();
+	const deleteScreenshotSource = async () => {
+		const deletedManagedSource = await invoke<boolean>(
+			"delete_screenshot_editor_source",
+		);
+
+		if (!deletedManagedSource) {
+			await remove(path());
+		}
+
+		await getCurrentWindow().close();
+	};
 
 	return (
 		<div
@@ -167,6 +181,18 @@ export function Header() {
 										<IconLucideFolder class="size-4 text-gray-11" />
 										<span>Open Folder</span>
 									</DropdownItem>
+									<Show when={hasManagedOriginal()}>
+										<DropdownItem
+											onSelect={() => {
+												exportImage("file", {
+													deleteOriginalAfterSave: true,
+												});
+											}}
+										>
+											<IconLucideSave class="size-4 text-gray-11" />
+											<span>Save and Delete Original</span>
+										</DropdownItem>
+									</Show>
 									<DropdownItem
 										onSelect={async () => {
 											if (
@@ -174,8 +200,7 @@ export function Header() {
 													"Are you sure you want to delete this screenshot?",
 												)
 											) {
-												await remove(path());
-												await getCurrentWindow().close();
+												await deleteScreenshotSource();
 											}
 										}}
 									>

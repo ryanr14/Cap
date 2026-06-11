@@ -60,6 +60,13 @@ Cap is the open source alternative to Loom. It's a Turborepo monorepo with a Tau
 - **Key Features**: Instant recording, studio mode, AI-generated captions, collaborative comments
 - **Business Model**: Freemium SaaS with usage-based pricing
 
+## Ryan Local Workflow
+
+- Keep `/Applications/Cap.app` as the normal release app. Use `/Applications/Cap - Development.app` for local builds/tests.
+- Build the fastest useful local test artifact before broader release workflow when Ryan asks how to test a desktop change.
+- `closeScreenshotEditorAfterCopy` behavior is opt-in and persisted; do not make close-after-copy the hardcoded default.
+- Inventory existing app bundles before changing launch targets or claiming which Cap copy is in use.
+
 ## File Location Patterns & Key Directories
 
 ### Core Applications

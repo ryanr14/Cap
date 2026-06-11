@@ -19,7 +19,12 @@ use specta::Type;
 use std::io::Cursor;
 use std::str::FromStr;
 use std::time::Instant;
-use std::{collections::HashMap, ops::Deref, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    ops::Deref,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tauri::{
     AppHandle, Manager, Runtime, Window,
     ipc::{CommandArg, InvokeError},
@@ -743,6 +748,35 @@ pub async fn update_screenshot_config(
         println!("Not saving config: parent {parent:?} is not a .cap directory");
     }
     Ok(())
+}
+
+fn screenshot_project_dir(path: &Path) -> Option<PathBuf> {
+    if path.extension().and_then(|s| s.to_str()) == Some("cap") {
+        return Some(path.to_path_buf());
+    }
+
+    let parent = path.parent()?;
+    if parent.extension().and_then(|s| s.to_str()) == Some("cap") {
+        Some(parent.to_path_buf())
+    } else {
+        None
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_screenshot_editor_source(
+    instance: WindowScreenshotEditorInstance,
+) -> Result<bool, String> {
+    let Some(source_dir) = screenshot_project_dir(&instance.path) else {
+        return Ok(false);
+    };
+
+    match tokio::fs::remove_dir_all(source_dir).await {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(e) => Err(format!("Failed to delete original screenshot: {e}")),
+    }
 }
 
 #[tauri::command]

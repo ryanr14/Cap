@@ -279,20 +279,9 @@ impl WindowImpl {
     }
 
     pub fn get_topmost_at_cursor() -> Option<Self> {
-        let mut windows_with_level = Self::list_containing_cursor()
+        Self::list_containing_cursor()
             .into_iter()
-            .filter_map(|window| {
-                let level = window.level()?;
-                if level > 5 {
-                    return None;
-                }
-                Some((window, level))
-            })
-            .collect::<Vec<_>>();
-
-        windows_with_level.sort_by_key(|b| std::cmp::Reverse(b.1));
-
-        windows_with_level.first().map(|(window, _)| *window)
+            .find(|window| window.level() == Some(0))
     }
 
     pub fn id(&self) -> WindowIdImpl {
